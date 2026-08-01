@@ -1,0 +1,18 @@
+# Build output
+bin/
+obj/
+*.user
+
+# .NET
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+
+# macOS
+.DS_Store
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.suo

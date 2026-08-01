@@ -1,0 +1,35 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!--
+    MR-1 / MR-6 (docs/03-architecture/03-modular-monolith.md): a *.Domain project may reference
+    Atlas.Kernel only, and Atlas.Kernel references nothing. Atlas.ArchitectureTests re-checks this
+    at the assembly level; this target fails the build immediately, at the point of the mistake.
+  -->
+  <Target Name="EnforceDomainReferenceGuard" AfterTargets="ResolveProjectReferences"
+          Condition="$(MSBuildProjectName.EndsWith('.Domain'))">
+    <ItemGroup>
+      <_IllegalDomainReference Include="@(ProjectReference)"
+          Condition="'%(Filename)' != 'Atlas.Kernel'" />
+    </ItemGroup>
+    <Error Condition="'@(_IllegalDomainReference)' != ''"
+           Text="MR-1 violation: $(MSBuildProjectName) references @(_IllegalDomainReference->'%(Filename)'), but a *.Domain project may reference only Atlas.Kernel." />
+  </Target>
+
+  <Target Name="EnforceKernelReferenceGuard" AfterTargets="ResolveProjectReferences"
+          Condition="'$(MSBuildProjectName)' == 'Atlas.Kernel'">
+    <Error Condition="'@(ProjectReference)' != ''"
+           Text="MR-6 violation: Atlas.Kernel references @(ProjectReference->'%(Filename)'), but Atlas.Kernel must reference nothing." />
+  </Target>
+
+</Project>

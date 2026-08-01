@@ -1,0 +1,37 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.cs]
+indent_size = 4
+max_line_length = 120
+
+# File-scoped namespaces (docs/05-engineering/02-coding-standards.md §9)
+csharp_style_namespace_declarations = file_scoped:error
+
+# using directives outside the namespace and sorted
+csharp_using_directive_placement = outside_namespace:error
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# Nullable reference types, warnings as errors (CS-4). Reinforces what
+# Directory.Build.props already sets (Nullable=enable, TreatWarningsAsErrors=true).
+dotnet_diagnostic.CS8600.severity = error
+dotnet_diagnostic.CS8601.severity = error
+dotnet_diagnostic.CS8602.severity = error
+dotnet_diagnostic.CS8603.severity = error
+dotnet_diagnostic.CS8604.severity = error
+
+# CS-8: public domain types are immutable — prefer records/init
+csharp_style_prefer_readonly_struct = true:suggestion
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false

@@ -21,4 +21,15 @@
     <ProjectReference Include="..\..\src\Modules\Positions\Domain\Atlas.Modules.Positions.Domain.csproj" />
   </ItemGroup>
 
+  <!-- Decision 0013: the rule-coverage gate (docs/05-engineering/03-testing-strategy.md §7) needs
+       every [BusinessRule]-attributed test method in-process to reflect over, so it references each
+       test project that currently cites a BR- identifier rather than loading their built DLLs from
+       disk (which would need to resolve each one's own dependency graph independently). Add a new
+       test project here the first time it gains a [BusinessRule("BR-nnn")] citation. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Atlas.Kernel.Tests\Atlas.Kernel.Tests.csproj" />
+    <ProjectReference Include="..\Modules.Ledger.Domain.Tests\Modules.Ledger.Domain.Tests.csproj" />
+    <ProjectReference Include="..\Modules.Ingestion.Domain.Tests\Modules.Ingestion.Domain.Tests.csproj" />
+  </ItemGroup>
+
 </Project>

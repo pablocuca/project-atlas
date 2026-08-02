@@ -9,6 +9,7 @@ public class MoneyTests
     // Testing Strategy §2: "Money split conservation — for any amount and divisor, the parts
     // re-sum to the original exactly" (INV-011 / BR-004).
     [Property]
+    [BusinessRule("BR-004")]
     public bool Split_parts_always_resum_to_the_original(int amount, PositiveInt parts)
     {
         var money = Money.FromMinorUnits(amount, Commodity.Brl);
@@ -30,6 +31,7 @@ public class MoneyTests
     // Testing Strategy §2: "Money commodity safety — arithmetic on differing commodities always
     // throws" (INV-010 / BR-002).
     [Property]
+    [BusinessRule("BR-002")]
     public bool Arithmetic_across_commodities_always_throws(int a, int b)
     {
         var brl = Money.FromMinorUnits(a, Commodity.Brl);
@@ -46,8 +48,10 @@ public class MoneyTests
         }
     }
 
+    // BR-003 / INV-005: rounding is half-even, applied exactly once, at the declared boundary.
     [Theory]
     [BusinessRuleTheoryData]
+    [BusinessRule("BR-003")]
     public void FromDecimal_rounds_half_to_even_at_the_declared_boundary(decimal amount, long expectedMinorUnits)
     {
         var money = Money.FromDecimal(amount, Commodity.Brl);

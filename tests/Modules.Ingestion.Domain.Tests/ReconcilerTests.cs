@@ -8,6 +8,7 @@ public class ReconcilerTests
 {
     // US-012 (docs/01-product/10-user-stories.md): exact match reconciles.
     [Fact]
+    [BusinessRule("BR-108")]
     public void Exact_match_is_reconciled()
     {
         var reported = Money.FromMinorUnits(1_432_891, Commodity.Brl); // R$14.328,91
@@ -22,6 +23,7 @@ public class ReconcilerTests
     // US-012: R$14.328,91 reported vs R$14.290,00 ledger -> R$38,91 discrepancy, well outside
     // tolerance, never a silent fix.
     [Fact]
+    [BusinessRule("BR-108")]
     public void The_docs_drift_scenario_is_not_reconciled()
     {
         var reported = Money.FromMinorUnits(1_432_891, Commodity.Brl);

@@ -22,18 +22,20 @@ before M1 by calendar — before *real data*, specifically.
 
 ---
 
-### TD-002 — Rule-coverage gate is a convention, not a CI gate
+### TD-002 — Rule-coverage gate is a convention, not a CI gate — **PAID (2026-08-02)**
 **Incurred:** M0 Slice 1 · **Type:** Deliberate, prudent (stated explicitly in `pr.yml`'s own header
 comment since Slice 1)
-**Principal:** ~1 day — parse `docs/02-domain/05-business-rules.md` for `BR-` identifiers, scan test
-assemblies for `[BusinessRule("BR-nnn")]`, fail the build on any rule with no test
-**Interest rate:** MEDIUM and rising — every `BR-` added from here without a test becomes invisible
-debt instead of a build failure. Currently manageable because one person is tracking it by hand for
-one module's ~10 rules; does not scale to a second module's worth of rules.
-**Symptom if unpaid:** a business rule can silently ship untested; the only defence is human
-discipline, which `docs/05-engineering/03-testing-strategy.md` itself treats as insufficient.
-**Trigger to pay:** before M1 adds Ingestion's or Positions' business rules — a second module's rule
-set is where hand-tracking stops being credible.
+**Resolution:** `tests/Atlas.ArchitectureTests/RuleCoverageTests.cs` — parses `docs/02-domain/
+05-business-rules.md` for `BR-` identifiers, reflects over every test project that cites a `BR-` for
+`[BusinessRule("BR-nnn")]`-attributed methods, fails the build on any `BR-` cited in `src/` with no
+covering test. Runs as part of `dotnet test atlas.sln`, already gate #1 in `pr.yml` — no new CI job
+needed. Scope and mechanism reasoning: [Decision 0013](../decisions/0013-rule-coverage-gate.md).
+**Symptom if unpaid (historical):** a business rule could silently ship untested; the only defence
+was human discipline, which `docs/05-engineering/03-testing-strategy.md` itself treats as
+insufficient.
+**Verified as a real gate**, not a tautology: a temporary fake `BR-999` citation in `src/` was proven
+to fail the build with a clear message before being reverted (see Decision 0013).
+**Residual scope not covered by this gate:** see TD-007 (`INV-` identifiers).
 **Owner:** CTO · **Scheduled:** M1
 
 ---
@@ -104,6 +106,27 @@ registering every instrument it has ever seen.
 **Trigger to pay:** MarketData's real commodity master-data table (FR-205+, M2) — this debt is paid
 off by that table existing, not by hardening the in-memory registry further.
 **Owner:** CTO · **Scheduled:** M2, alongside MarketData
+
+---
+
+### TD-007 — `INV-` identifiers have no rule-coverage gate (TD-002's residual scope)
+**Incurred:** M0 Slice 1, split out from TD-002 · **Type:** Deliberate, prudent — `docs/05-
+engineering/03-testing-strategy.md` §7 only ever specified `BR-` scanning; `INV-` was never in that
+gate's stated design
+**Principal:** ~1 day, mostly reuse — `RuleCoverageTests.cs`'s scan/match logic generalises directly
+to an `INV-` pattern and an `[Invariant("INV-nnn")]` attribute; the harder part is deciding *where*
+the canonical `INV-` catalog lives, since (unlike `BR-`, one table in one file) `INV-` identifiers
+are scattered as inline bullets across `docs/02-domain/04-domain-model.md` and other domain docs,
+with no single parseable list today
+**Interest rate:** MEDIUM — Ledger's `INV-`s are mostly covered by tests that predate any citation
+convention; Positions' (`INV-040`/`041`/`043`) and Cashflow's (`INV-060`) are freshly and
+deliberately tested this session, but nothing stops that discipline eroding as more modules land
+**Symptom if unpaid:** identical to TD-002's original symptom, scoped to `INV-` only: a cited
+invariant can silently go untested with no build failure to catch it
+**Trigger to pay:** before a fourth module lands a set of `INV-`-governed rules with no dedicated
+`BR-` block of its own (Ledger and Reconciliation both have `BR-` blocks; Positions and Cashflow
+don't — that pattern is likely to repeat)
+**Owner:** CTO · **Scheduled:** M2, opportunistically alongside whichever module needs it next
 
 ---
 

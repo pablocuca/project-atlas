@@ -40,6 +40,7 @@ internal static class LedgerEndpoints
 
         group.MapPost("/accounts", OpenAccount);
         group.MapPost("/accounts/{id:guid}/close", CloseAccount);
+        group.MapGet("/accounts/by-code/{code}", FindAccountByCode);
         group.MapPost("/entries", PostEntry);
         group.MapPost("/entries/{id:guid}/correct", CorrectEntry);
         group.MapGet("/accounts/{id:guid}/balance", GetBalance);
@@ -65,6 +66,17 @@ internal static class LedgerEndpoints
             new TenantId(request.TenantId), new AccountId(id), request.ClosedAt, cancellationToken);
 
         return result.IsSuccess ? Results.Ok(ToResponse(result.Value)) : ToErrorResult(result.Error);
+    }
+
+    // A plain lookup, not a Result<T>-returning use case — reads directly through the repository
+    // port rather than adding a handler that would only ever forward the call. Exists so a client
+    // that gets INV-022's ACCOUNT_CODE_ALREADY_IN_USE on open can recover the existing account's id
+    // instead of being stuck (docs/decisions/0004: atlas-seed needs this on every rerun).
+    private static async Task<IResult> FindAccountByCode(
+        string code, Guid tenantId, IAccountRepository accounts, CancellationToken cancellationToken)
+    {
+        var account = await accounts.FindByCodeAsync(new TenantId(tenantId), code, cancellationToken);
+        return account is null ? Results.NotFound() : Results.Ok(ToResponse(account));
     }
 
     private static async Task<IResult> PostEntry(

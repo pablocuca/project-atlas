@@ -60,13 +60,11 @@ jobs:
           echo "Host never became healthy" >&2
           exit 1
 
-      - name: Exercise the ledger end-to-end
-        run: |
-          set -euo pipefail
-          TENANT=$(python3 -c "import uuid; print(uuid.uuid4())")
-          CHECKING=$(curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
-            -d "{\"tenantId\":\"$TENANT\",\"code\":\"1.1.ci\",\"name\":\"CI Checking\",\"type\":\"Asset\",\"commodity\":\"BRL\",\"parentId\":null,\"openedAt\":\"2026-01-05T18:00:00Z\"}")
-          echo "$CHECKING" | grep -q '"id"'
+      # The M0 exit gate's "1,000 synthetic entries post, balance, and query correctly at arbitrary
+      # bitemporal coordinates" (docs/01-product/08-roadmap-and-milestones.md), proven on every push:
+      # atlas-seed posts a 10-year synthetic life and independently verifies every balance it checks.
+      - name: Seed and verify (M0 exit gate)
+        run: dotnet run --project tools/atlas-seed -- --years 10 --seed 42 --host http://localhost:5299
 
       - name: Tear down
         if: always()

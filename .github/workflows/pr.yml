@@ -30,3 +30,46 @@ jobs:
       - run: dotnet format atlas.sln --verify-no-changes --no-restore
 
       - run: dotnet test atlas.sln --no-build --configuration Release
+
+  local-dev-smoke:
+    # A continuously-verified proof of NFR-609's documented local-dev path (docs/03-architecture/
+    # 09-devops-and-cicd.md §7), not a claim in a README nobody re-checks.
+    name: docker-compose local dev smoke test (NFR-609)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: docker compose up
+        run: docker compose up -d --wait
+
+      - name: Run Atlas.Host in the background
+        run: |
+          dotnet run --project src/Atlas.Host --urls http://localhost:5299 &
+          echo $! > host.pid
+
+      - name: Wait for the host to become healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5299/health; then exit 0; fi
+            sleep 2
+          done
+          echo "Host never became healthy" >&2
+          exit 1
+
+      - name: Exercise the ledger end-to-end
+        run: |
+          set -euo pipefail
+          TENANT=$(python3 -c "import uuid; print(uuid.uuid4())")
+          CHECKING=$(curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"code\":\"1.1.ci\",\"name\":\"CI Checking\",\"type\":\"Asset\",\"commodity\":\"BRL\",\"parentId\":null,\"openedAt\":\"2026-01-05T18:00:00Z\"}")
+          echo "$CHECKING" | grep -q '"id"'
+
+      - name: Tear down
+        if: always()
+        run: |
+          kill "$(cat host.pid)" 2>/dev/null || true
+          docker compose down -v

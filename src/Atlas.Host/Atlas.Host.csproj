@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Atlas.Kernel\Atlas.Kernel.csproj" />
+    <ProjectReference Include="..\Modules\Ledger\Domain\Atlas.Modules.Ledger.Domain.csproj" />
+    <ProjectReference Include="..\Modules\Ledger\Application\Atlas.Modules.Ledger.Application.csproj" />
+    <ProjectReference Include="..\Modules\Ledger\Infrastructure\Atlas.Modules.Ledger.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,22 @@
+# Local dev only (docs/03-architecture/09-devops-and-cicd.md §7). Postgres only for now — Azurite
+# is deliberately not here yet: nothing in the codebase writes to blob storage before M2+, and a
+# service nothing uses is dead weight, not readiness. Added back the moment something needs it.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: atlas_local_dev
+      POSTGRES_DB: atlas
+    ports:
+      - "5432:5432"
+    volumes:
+      - atlas-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atlas"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  atlas-postgres-data:

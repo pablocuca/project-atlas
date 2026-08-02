@@ -6,6 +6,8 @@ namespace Atlas.Modules.Ledger.Domain.Entries;
 public readonly record struct EntryId(Guid Value)
 {
     public static EntryId New() => new(Guid.NewGuid());
+
+    public override string ToString() => Value.ToString();
 }
 
 public enum JournalEntryKind

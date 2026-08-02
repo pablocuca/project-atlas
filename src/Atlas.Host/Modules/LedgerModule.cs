@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Atlas.Modules.Ledger.Application;
+using Atlas.Modules.Ledger.Contracts;
 using Atlas.Modules.Ledger.Infrastructure;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
@@ -37,6 +38,10 @@ public sealed class LedgerModule : IAtlasModule
         services.AddScoped<PostJournalEntryHandler>();
         services.AddScoped<CorrectJournalEntryHandler>();
         services.AddScoped<BalanceAtHandler>();
+
+        // The in-process port other modules use to post into the ledger (MR-2: they depend on
+        // Ledger.Contracts only). First real consumer: Ingestion (M1 Slice 1).
+        services.AddScoped<IPostJournalEntry, PostJournalEntryPort>();
     }
 
     public void RegisterEventHandlers(IEventBusBuilder eventBus)

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Azure.Storage.Blobs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Atlas.Kernel\Atlas.Kernel.csproj" />
+    <ProjectReference Include="..\Domain\Atlas.Modules.Ingestion.Domain.csproj" />
+    <ProjectReference Include="..\Application\Atlas.Modules.Ingestion.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+
+</Project>

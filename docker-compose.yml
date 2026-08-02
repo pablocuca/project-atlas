@@ -1,6 +1,4 @@
-# Local dev only (docs/03-architecture/09-devops-and-cicd.md §7). Postgres only for now — Azurite
-# is deliberately not here yet: nothing in the codebase writes to blob storage before M2+, and a
-# service nothing uses is dead weight, not readiness. Added back the moment something needs it.
+# Local dev only (docs/03-architecture/09-devops-and-cicd.md §7).
 services:
   postgres:
     image: postgres:16-alpine
@@ -18,5 +16,17 @@ services:
       timeout: 5s
       retries: 10
 
+  # Blob storage emulator — added in M1 Slice 1, when raw payload archival (FR-112) became the
+  # first thing that actually needed it (data-strategy.md assigns raw payloads to Blob, not
+  # Postgres). Blob endpoint only; table/queue are unused.
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.34.0
+    command: "azurite-blob --blobHost 0.0.0.0 --loose"
+    ports:
+      - "10000:10000"
+    volumes:
+      - atlas-azurite-data:/data
+
 volumes:
   atlas-postgres-data:
+  atlas-azurite-data:

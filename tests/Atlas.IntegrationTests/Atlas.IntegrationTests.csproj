@@ -10,7 +10,9 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.Azurite" />
     <PackageReference Include="Npgsql" />
+    <PackageReference Include="Azure.Storage.Blobs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,6 +24,10 @@
     <ProjectReference Include="..\..\src\Modules\Ledger\Domain\Atlas.Modules.Ledger.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Ledger\Application\Atlas.Modules.Ledger.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Ledger\Infrastructure\Atlas.Modules.Ledger.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Ledger\Contracts\Atlas.Modules.Ledger.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Ingestion\Domain\Atlas.Modules.Ingestion.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Ingestion\Application\Atlas.Modules.Ingestion.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Ingestion\Infrastructure\Atlas.Modules.Ingestion.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

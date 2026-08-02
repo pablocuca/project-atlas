@@ -43,15 +43,28 @@ software.
 ### 2.2 Shape
 
 ```sql
+CREATE TABLE ledger.account (
+  account_id  uuid PRIMARY KEY,
+  tenant_id   uuid NOT NULL,
+  code        text NOT NULL,
+  name        text NOT NULL,
+  type        text NOT NULL CHECK (type IN ('Asset','Liability','Equity','Income','Expense')),
+  commodity   text NOT NULL,
+  parent_id   uuid REFERENCES ledger.account(account_id),
+  opened_at   timestamptz NOT NULL,
+  closed_at   timestamptz,
+  UNIQUE (tenant_id, code)
+);
+
 CREATE TABLE ledger.journal_entry (
   entry_id        uuid PRIMARY KEY,
   tenant_id       uuid NOT NULL,
-  valid_time      date        NOT NULL,   -- when it was true in the world
+  valid_time      timestamptz NOT NULL,   -- when it was true in the world
   decision_time   timestamptz NOT NULL,   -- when Atlas learned it
-  decision_to     timestamptz NOT NULL DEFAULT 'infinity',
+  kind            text NOT NULL CHECK (kind IN ('Original','Reversal','Replacement')),
   corrects_entry  uuid REFERENCES ledger.journal_entry(entry_id),
   idempotency_key text NOT NULL,
-  source_id       uuid NOT NULL,
+  source_id       text NOT NULL,
   description     text NOT NULL,
   UNIQUE (tenant_id, source_id, idempotency_key)
 );
@@ -59,7 +72,7 @@ CREATE TABLE ledger.journal_entry (
 CREATE TABLE ledger.posting (
   posting_id  bigserial PRIMARY KEY,
   entry_id    uuid NOT NULL REFERENCES ledger.journal_entry(entry_id),
-  account_id  uuid NOT NULL,
+  account_id  uuid NOT NULL REFERENCES ledger.account(account_id),
   commodity   text NOT NULL,
   minor_units bigint NOT NULL,            -- signed; + debit, − credit
   lot_ref     uuid
@@ -70,10 +83,19 @@ CREATE TABLE ledger.posting (
 - `minor_units bigint`, signed. **No `numeric`, no `decimal`, no `money` type.** Direction is the
   sign; entry balance is `SUM(minor_units) = 0 GROUP BY commodity` — a constraint the database
   itself can verify with a deferred trigger.
-- `decision_to` implements logical retraction *of a belief*. A restated fact closes the old
-  belief interval and opens a new one. The row is never updated in the semantic sense, only its
-  belief interval is closed.
+- **No `decision_to`, no update path, ever.** A restated fact is two brand-new rows (a Reversal and
+  a Replacement, `kind` distinguishes them) with `corrects_entry` pointing at the original — never a
+  mutation of it. See [Decision 0002](../decisions/0002-append-only-schema.md): an earlier draft of
+  this schema had a `decision_to` column implying an UPDATE on correction, which contradicted
+  ADR-0002's and the Security Strategy's own "DB role has no UPDATE/DELETE on truth tables" rule.
+  The as-of query below reflects the corrected, append-only design.
+- `valid_time timestamptz`, not `date` — matches `Atlas.Kernel.ValidTime`, which BR-104 compares
+  against a timestamp trading-day-close; truncating to a bare date would lose that fidelity.
+- `source_id text`, not `uuid` — there is no Source aggregate with a UUID identity yet (arrives with
+  Ingestion, M1); today a source is a string like `"manual"`.
 - `UNIQUE (tenant_id, source_id, idempotency_key)` is the entire duplicate-import defence (BR-103).
+- `UNIQUE (tenant_id, code)` on `ledger.account` gives INV-022's "codes unique per tenant" a real
+  DB-enforced guarantee.
 
 ### 2.3 Querying
 
@@ -86,12 +108,17 @@ SELECT commodity, SUM(minor_units)
 FROM ledger.posting p JOIN ledger.journal_entry e USING (entry_id)
 WHERE e.tenant_id = $tenant AND p.account_id = $account
   AND e.valid_time <= $V
-  AND e.decision_time <= $D AND e.decision_to > $D
+  AND e.decision_time <= $D
 GROUP BY commodity;
 ```
 
-Indexes: `(tenant_id, account_id, valid_time)` and `(tenant_id, decision_time, decision_to)`, plus a
-BRIN index on `decision_time` — the table is naturally append-ordered, and BRIN costs almost nothing.
+No interval-containment clause is needed — every row (original, reversal, replacement) is simply
+included or excluded by `decision_time <= $D`; a reversal's negated postings net out algebraically
+once it's in scope. That is what makes the earlier `decision_to` design unnecessary as well as
+wrong.
+
+Indexes: `(tenant_id, account_id, valid_time)` and `(tenant_id, decision_time)`, plus a BRIN index on
+`decision_time` — the table is naturally append-ordered, and BRIN costs almost nothing.
 
 ### 2.4 Performance posture
 

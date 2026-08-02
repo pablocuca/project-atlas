@@ -89,4 +89,20 @@ public sealed record Account
 
         return Result.Ok(new Account(Id, TenantId, Code, Name, Type, Commodity, ParentId, OpenedAt, closedAt));
     }
+
+    // For Infrastructure to rehydrate a row it already knows is valid (it passed Open/Close on the
+    // way in). Bypasses validation deliberately — re-running business rules against already-true
+    // history would be wrong, not just redundant (e.g. a since-tightened rule shouldn't reject data
+    // that was valid when it was written).
+    public static Account Reconstitute(
+        AccountId id,
+        TenantId tenantId,
+        string code,
+        string name,
+        AccountType type,
+        Commodity commodity,
+        AccountId? parentId,
+        DateTimeOffset openedAt,
+        DateTimeOffset? closedAt) =>
+        new(id, tenantId, code, name, type, commodity, parentId, openedAt, closedAt);
 }

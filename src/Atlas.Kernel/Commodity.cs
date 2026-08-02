@@ -44,4 +44,18 @@ public sealed record Commodity
 
     public static readonly Commodity Brl = Create("BRL", CommodityKind.FiatCurrency, 2, "BR");
     public static readonly Commodity Usd = Create("USD", CommodityKind.FiatCurrency, 2, "US");
+
+    private static readonly IReadOnlyDictionary<string, Commodity> KnownBySymbol =
+        new Dictionary<string, Commodity> { [Brl.Symbol] = Brl, [Usd.Symbol] = Usd };
+
+    // Round-trips a Commodity through its symbol for persistence layers, which store only the
+    // symbol (docs/03-architecture/04-data-strategy.md §2.2 — posting.commodity is a bare text
+    // column, deliberately: there is no commodity master-data table yet). Only resolves what
+    // Atlas.Kernel statically knows today; a real lookup arrives with MarketData (M1/M2).
+    public static Commodity BySymbol(string symbol) =>
+        KnownBySymbol.TryGetValue(symbol, out var commodity)
+            ? commodity
+            : throw new ArgumentException(
+                $"Unknown commodity symbol '{symbol}'. Only {string.Join(", ", KnownBySymbol.Keys)} are known " +
+                "until a commodity master-data table exists.", nameof(symbol));
 }

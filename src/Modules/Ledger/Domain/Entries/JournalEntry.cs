@@ -114,6 +114,21 @@ public sealed record JournalEntry
         return Result.Ok((reversal, replacement));
     }
 
+    // For Infrastructure to rehydrate a row it already knows is valid — see Account.Reconstitute
+    // for why this bypasses validation rather than re-running Create's checks.
+    public static JournalEntry Reconstitute(
+        EntryId id,
+        TenantId tenantId,
+        ValidTime validTime,
+        DecisionTime decisionTime,
+        string description,
+        string sourceId,
+        string idempotencyKey,
+        ImmutableArray<Posting> postings,
+        EntryId? correctsEntryId,
+        JournalEntryKind kind) =>
+        new(id, tenantId, validTime, decisionTime, description, sourceId, idempotencyKey, postings, correctsEntryId, kind);
+
     private static Result<Unit> ValidatePostings(ImmutableArray<Posting> postings, string idempotencyKey)
     {
         if (postings.Length < 2)

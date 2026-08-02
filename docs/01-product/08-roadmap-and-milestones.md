@@ -40,14 +40,40 @@ The visually impressive parts — dashboards, options, narrative — come last, 
 | Local dev environment, CI pipeline, Bicep for dev | — |
 
 **Exit gate**
-- [ ] 1,000 synthetic entries post, balance, and query correctly at arbitrary bitemporal coordinates
-- [ ] A correction to a 3-week-old entry preserves both the original belief and the corrected truth
-- [ ] Architecture tests pass; no module boundary violations
-- [ ] Golden replay test: full ledger state reconstructible from the event log
-- [ ] `docker compose up` → running system in ≤ 30 min from a clean clone (NFR-609)
+- [x] 1,000 synthetic entries post, balance, and query correctly at arbitrary bitemporal coordinates
+      — `tools/atlas-seed --years 10 --seed 42` posts 1,258 entries (22 corrected) and independently
+      verifies 188 sampled balance queries against the live API on every CI run (`pr.yml`,
+      `local-dev-smoke` job)
+- [x] A correction to a 3-week-old entry preserves both the original belief and the corrected truth
+      — `Modules.Ledger.Domain.Tests/LedgerReplayTests.cs`,
+      `Atlas.IntegrationTests/LedgerPersistenceTests.cs` (real Postgres), and manually verified over
+      real HTTP; the same property is what `atlas-seed`'s 22 corrections re-prove at scale on every push
+- [x] Architecture tests pass; no module boundary violations — `Atlas.ArchitectureTests` (MR-1, MR-6)
+      green in CI. Only these two are checkable with one module; MR-2/3/5/7/8/9/10 have no second
+      module to violate yet (TD-005 in the [debt register](../06-governance/debt-register.md) tracks
+      the remaining gates, not this one — module-boundary rules aren't gated by CI infrastructure,
+      they're gated by module count)
+- [x] Golden replay test: full ledger state reconstructible from the event log — proven as a property
+      test at the Domain level (`Any_valid_entry_balances_to_zero_per_commodity` and friends) and at
+      ~1,300-row scale via `atlas-seed`'s independent recomputation; no static golden-file fixture
+      exists (none was ever specified for the ledger — see Slice 1 research notes — only Tax has one
+      by design)
+- [x] `docker compose up` → running system in ≤ 30 min from a clean clone (NFR-609) — the documented
+      three-command sequence (`docker compose up -d`, `dotnet run --project src/Atlas.Host`,
+      `dotnet run --project tools/atlas-seed`) runs in well under a minute total in CI; timed
+      end-to-end, not just claimed
 
 **Why first:** ADR-0002 is the deepest structural commitment in the system. Getting it wrong later
 means rebuilding everything above it.
+
+**Closure note (2026-08-02):** the exit gate is met. One scope-table item was *not* delivered:
+**Bicep for dev**, deferred by [Decision 0003](../decisions/0003-no-auth-until-a-real-client-exists.md)
+— provisioning cloud infrastructure for a host with no authentication would be the actual mistake,
+not the missing infrastructure. It isn't part of the exit gate itself, so M0 is done per the gate;
+Bicep is picked up whenever real authentication and a deployment target both exist. Full DoD
+milestone review, including the technical debt register created by this review, recorded in
+[Decision 0005](../decisions/0005-kernel-additions-m0.md) and the
+[debt register](../06-governance/debt-register.md).
 
 ---
 

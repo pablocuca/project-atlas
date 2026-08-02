@@ -30,9 +30,15 @@ public sealed class LedgerModule : IAtlasModule
 
         _dataSource = NpgsqlDataSource.Create(restrictedBuilder.ConnectionString);
 
-        services.AddSingleton(_dataSource);
-        services.AddScoped<IAccountRepository, AccountRepository>();
-        services.AddScoped<IJournalEntryRepository, JournalEntryRepository>();
+        // Not services.AddSingleton(_dataSource): every module's data source is the same bare
+        // NpgsqlDataSource type, so a second module's registration would silently shadow this one
+        // in DI resolution (found the hard way — Ingestion's data source was resolving into
+        // Ledger's AccountRepository, producing a "permission denied for schema ledger" error from
+        // the wrong role entirely). Factories closing over this module's own _dataSource avoid the
+        // type collision without needing keyed services for what's otherwise plain construction.
+        var dataSource = _dataSource;
+        services.AddScoped<IAccountRepository>(_ => new AccountRepository(dataSource));
+        services.AddScoped<IJournalEntryRepository>(_ => new JournalEntryRepository(dataSource));
         services.AddScoped<OpenAccountHandler>();
         services.AddScoped<CloseAccountHandler>();
         services.AddScoped<PostJournalEntryHandler>();

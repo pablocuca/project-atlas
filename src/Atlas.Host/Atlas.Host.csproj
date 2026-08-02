@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <PackageReference Include="Npgsql" />
+    <PackageReference Include="Azure.Storage.Blobs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -9,6 +10,9 @@
     <ProjectReference Include="..\Modules\Ledger\Domain\Atlas.Modules.Ledger.Domain.csproj" />
     <ProjectReference Include="..\Modules\Ledger\Application\Atlas.Modules.Ledger.Application.csproj" />
     <ProjectReference Include="..\Modules\Ledger\Infrastructure\Atlas.Modules.Ledger.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Ingestion\Domain\Atlas.Modules.Ingestion.Domain.csproj" />
+    <ProjectReference Include="..\Modules\Ingestion\Application\Atlas.Modules.Ingestion.Application.csproj" />
+    <ProjectReference Include="..\Modules\Ingestion\Infrastructure\Atlas.Modules.Ingestion.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

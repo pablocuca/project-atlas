@@ -66,6 +66,55 @@ jobs:
       - name: Seed and verify (M0 exit gate)
         run: dotnet run --project tools/atlas-seed -- --years 10 --seed 42 --host http://localhost:5299
 
+      # M1 Slice 2: the CSV import endpoint, exercised over real HTTP — one malformed row must not
+      # lose the batch, and the two valid rows must post and net to the expected balance.
+      - name: Import a CSV and verify the result (M1 ingestion)
+        run: |
+          set -euo pipefail
+          TENANT=$(python3 -c "import uuid; print(uuid.uuid4())")
+
+          CHECKING=$(curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"code\":\"1.1.ci-ingest\",\"name\":\"Checking\",\"type\":\"Asset\",\"commodity\":\"BRL\",\"parentId\":null,\"openedAt\":\"2026-01-01T00:00:00Z\"}")
+          UNCLASSIFIED=$(curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"code\":\"5.9.ci-unclassified\",\"name\":\"Unclassified\",\"type\":\"Expense\",\"commodity\":\"BRL\",\"parentId\":null,\"openedAt\":\"2026-01-01T00:00:00Z\"}")
+
+          CHECKING_ID=$(echo "$CHECKING" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+          UNCLASSIFIED_ID=$(echo "$UNCLASSIFIED" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+
+          python3 - "$TENANT" "$CHECKING_ID" "$UNCLASSIFIED_ID" <<'PYEOF' > import_request.json
+          import json, sys
+          tenant, checking, unclassified = sys.argv[1:4]
+          print(json.dumps({
+              "tenantId": tenant,
+              "sourceId": "ci-bank",
+              "csvContent": "date,description,amount\n2026-01-05,Salary,8000.00\nnot-a-date,Broken,50.00\n2026-01-06,Groceries,-150.50\n",
+              "columnMapping": {
+                  "primaryAccountId": checking, "unclassifiedAccountId": unclassified, "commodity": "BRL",
+                  "dateColumnIndex": 0, "descriptionColumnIndex": 1, "amountColumnIndex": 2, "hasHeaderRow": True,
+              },
+              "decisionTime": "2026-01-06T12:00:00Z",
+              "currentTradingDayClose": "2026-01-07T00:00:00Z",
+          }))
+          PYEOF
+
+          RESULT=$(curl -sf -X POST http://localhost:5299/ingestion/csv-imports -H "Content-Type: application/json" -d @import_request.json)
+          echo "$RESULT"
+          echo "$RESULT" | python3 -c "
+          import json, sys
+          result = json.load(sys.stdin)
+          assert result['rowsParsed'] == 2, result
+          assert result['entriesPosted'] == 2, result
+          assert len(result['parseFailures']) == 1, result
+          assert result['duplicatesSkipped'] == 0, result
+          "
+
+          BALANCE=$(curl -sf "http://localhost:5299/ledger/accounts/$CHECKING_ID/balance?tenantId=$TENANT&commodity=BRL&asOfValidTime=2026-02-01T00:00:00Z&asOfDecisionTime=2026-02-01T00:00:00Z")
+          echo "$BALANCE" | python3 -c "
+          import json, sys
+          balance = json.load(sys.stdin)
+          assert balance['amountMinorUnits'] == 784950, balance  # 8000.00 - 150.50
+          "
+
       - name: Tear down
         if: always()
         run: |

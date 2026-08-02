@@ -47,12 +47,7 @@ public sealed class IngestionFixture : IAsyncLifetime
         };
         IngestionDataSource = NpgsqlDataSource.Create(ingestionBuilder.ConnectionString);
 
-        // Azure.Storage.Blobs defaults to the newest wire API version it knows (V2026_06_06),
-        // which Azurite 3.34.0 predates and rejects outright ("API version ... is not supported").
-        // Pinning an older, long-stable version decouples the client SDK's pace from the pinned
-        // emulator image's — the same fix any future Atlas.Host construction of a blob client needs.
-        var blobOptions = new BlobClientOptions(BlobClientOptions.ServiceVersion.V2024_08_04);
-        var blobServiceClient = new BlobServiceClient(_azurite.GetConnectionString(), blobOptions);
+        var blobServiceClient = new BlobServiceClient(_azurite.GetConnectionString(), AzuriteBlobClientOptions.Create());
         BlobContainerClient = blobServiceClient.GetBlobContainerClient("raw-payloads");
     }
 

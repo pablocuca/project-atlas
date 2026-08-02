@@ -13,7 +13,7 @@ var adminConnectionString = builder.Configuration.GetConnectionString("Postgres"
 var adminDataSource = NpgsqlDataSource.Create(adminConnectionString);
 
 // Adding a module is meant to be this one line (docs/03-architecture/03-modular-monolith.md §5).
-List<IAtlasModule> modules = [new LedgerModule(), new IngestionModule(), new PositionsModule()];
+List<IAtlasModule> modules = [new LedgerModule(), new IngestionModule(), new PositionsModule(), new CashflowModule()];
 
 foreach (var module in modules)
     module.RegisterServices(builder.Services, builder.Configuration);

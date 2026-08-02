@@ -16,6 +16,9 @@
     <ProjectReference Include="..\Modules\Positions\Domain\Atlas.Modules.Positions.Domain.csproj" />
     <ProjectReference Include="..\Modules\Positions\Application\Atlas.Modules.Positions.Application.csproj" />
     <ProjectReference Include="..\Modules\Positions\Infrastructure\Atlas.Modules.Positions.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Cashflow\Domain\Atlas.Modules.Cashflow.Domain.csproj" />
+    <ProjectReference Include="..\Modules\Cashflow\Application\Atlas.Modules.Cashflow.Application.csproj" />
+    <ProjectReference Include="..\Modules\Cashflow\Infrastructure\Atlas.Modules.Cashflow.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

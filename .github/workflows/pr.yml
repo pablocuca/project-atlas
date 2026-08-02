@@ -267,6 +267,47 @@ jobs:
           assert balance['amountMinorUnits'] == 90, balance
           "
 
+      # FR-301, INV-060, US-013: reclassifying a category never overwrites the original decision —
+      # both remain in the audit trail, and only the most recent one is "current". A non-Expense
+      # account is rejected outright (Decision 0011: a category is exactly a Ledger Expense account).
+      - name: Expense classification (M1 cashflow)
+        run: |
+          set -euo pipefail
+          TENANT=$(python3 -c "import uuid; print(uuid.uuid4())")
+
+          CATEGORY=$(curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"code\":\"5.1.ci-saude\",\"name\":\"Plano de saude\",\"type\":\"Expense\",\"commodity\":\"BRL\",\"parentId\":null,\"openedAt\":\"2026-01-01T00:00:00Z\"}" \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+
+          curl -sf -X POST "http://localhost:5299/cashflow/categories/$CATEGORY/classify" -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"classification\":\"Discretionary\",\"rationale\":\"initial guess\",\"decidedAt\":\"2026-01-05T12:00:00Z\"}" > /dev/null
+
+          curl -sf -X POST "http://localhost:5299/cashflow/categories/$CATEGORY/classify" -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"classification\":\"Essential\",\"rationale\":\"health plan premium\",\"decidedAt\":\"2026-02-04T12:00:00Z\"}" > /dev/null
+
+          RESULT=$(curl -sf "http://localhost:5299/cashflow/categories/$CATEGORY/classification?tenantId=$TENANT")
+          echo "$RESULT"
+          echo "$RESULT" | python3 -c "
+          import json, sys
+          result = json.load(sys.stdin)
+          assert result['current']['classification'] == 'Essential', result
+          assert len(result['history']) == 2, result
+          assert result['history'][0]['classification'] == 'Discretionary', result
+          "
+
+          CHECKING=$(curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"code\":\"1.1.ci-cashflow-checking\",\"name\":\"Checking\",\"type\":\"Asset\",\"commodity\":\"BRL\",\"parentId\":null,\"openedAt\":\"2026-01-01T00:00:00Z\"}" \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+
+          STATUS=$(curl -s -o /tmp/classify_rejection.json -w "%{http_code}" -X POST "http://localhost:5299/cashflow/categories/$CHECKING/classify" -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"classification\":\"Discretionary\",\"rationale\":null,\"decidedAt\":\"2026-01-05T12:00:00Z\"}")
+          test "$STATUS" -eq 400
+          python3 -c "
+          import json
+          result = json.load(open('/tmp/classify_rejection.json'))
+          assert result['code'] == 'CASHFLOW.CATEGORY_ACCOUNT_NOT_AN_EXPENSE', result
+          "
+
       - name: Tear down
         if: always()
         run: |

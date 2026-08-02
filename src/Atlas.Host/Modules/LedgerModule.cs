@@ -47,11 +47,14 @@ public sealed class LedgerModule : IAtlasModule
 
         // In-process ports other modules use, depending on Ledger.Contracts only (MR-2).
         // IPostJournalEntry: Ingestion posting proposals (M1 Slice 1).
-        // IFindEntriesInRange: Ingestion's fuzzy cross-source duplicate detection (M1, FR-110).
+        // IFindEntriesInRange: Ingestion's fuzzy cross-source duplicate detection (M1, FR-110);
+        //   also Positions' SyncPositionHandler (M1, FR-201/202).
         // IQueryLedgerBalance: Ingestion's reconciliation (M1, FR-111).
+        // IFindAccount: Cashflow's expense classification (M1, FR-301).
         services.AddScoped<IPostJournalEntry, PostJournalEntryPort>();
         services.AddScoped<IFindEntriesInRange, FindEntriesInRangePort>();
         services.AddScoped<IQueryLedgerBalance, QueryLedgerBalancePort>();
+        services.AddScoped<IFindAccount, FindAccountPort>();
     }
 
     public void RegisterEventHandlers(IEventBusBuilder eventBus)

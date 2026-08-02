@@ -22,6 +22,15 @@ public class ModularMonolithTests
     }
 
     [Fact]
+    public void MR_01_PositionsDomainDependsOnlyOnKernel()
+    {
+        var domainAssembly = typeof(Atlas.Modules.Positions.Domain.Position).Assembly;
+        var atlasReferences = AtlasAssemblyReferences(domainAssembly);
+
+        Assert.Equal(["Atlas.Kernel"], atlasReferences);
+    }
+
+    [Fact]
     public void MR_06_KernelReferencesNothing()
     {
         var kernelAssembly = typeof(Atlas.Kernel.Money).Assembly;

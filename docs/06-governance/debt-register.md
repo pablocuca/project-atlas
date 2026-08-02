@@ -88,5 +88,24 @@ Security scans (secrets/deps/SBOM) are the exception: no dependency, worth sched
 
 ---
 
+### TD-006 — Registered commodities (equity tickers) live only in process memory
+**Incurred:** M1 (Positions, FR-201/202) · **Type:** Deliberate, prudent — reasoned explicitly at the
+call site (`docs/decisions/0009`)
+**Principal:** large — a real commodity master-data table (persistence, jurisdiction/regulatory
+metadata, listing/delisting lifecycle) is MarketData's own scope (FR-205+, M2), not a small add-on
+**Interest rate:** LOW today — every registration is a fast, explicit, idempotent
+`POST /positions/instruments` call an integrator makes before posting a trade referencing that
+ticker; restarting `Atlas.Host` forgetting registrations is a non-issue while nothing depends on
+process uptime for correctness. Becomes real the moment a genuine trade-import integration (an OFX
+broker-statement adapter, or similar) is expected to work across a host restart without re-
+registering every instrument it has ever seen.
+**Symptom if unpaid:** `Commodity.BySymbol` throws for a previously-registered ticker after any
+`Atlas.Host` restart, until re-registered.
+**Trigger to pay:** MarketData's real commodity master-data table (FR-205+, M2) — this debt is paid
+off by that table existing, not by hardening the in-memory registry further.
+**Owner:** CTO · **Scheduled:** M2, alongside MarketData
+
+---
+
 **See also:** [Technical Debt Strategy](../05-engineering/05-technical-debt-strategy.md) ·
 [Risk Register](01-risk-register.md) · [Definition of Done](../05-engineering/04-definition-of-done.md)

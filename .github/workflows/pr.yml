@@ -203,6 +203,70 @@ jobs:
           assert balance['amountMinorUnits'] == 800000, balance
           "
 
+      # FR-201, FR-202, INV-040, INV-043: buy 100 @ R$30,00, buy 50 @ R$36,00, sell 60 — weighted-
+      # average unit cost is R$32,00 throughout, and Positions' synced quantity must exactly match
+      # the ledger's own quantity for the position account (Decision 0010's 4-leg trade shape, forced
+      # by BR-100's per-commodity balancing).
+      - name: Lots and custo médio (M1 positions)
+        run: |
+          set -euo pipefail
+          TENANT=$(python3 -c "import uuid; print(uuid.uuid4())")
+
+          curl -sf -X POST http://localhost:5299/positions/instruments -H "Content-Type: application/json" \
+            -d '{"symbol":"CI.PETR4","kind":"Equity","minorUnitScale":0,"jurisdiction":"BR"}'
+
+          open_account() {
+            curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
+              -d "{\"tenantId\":\"$TENANT\",\"code\":\"$1\",\"name\":\"$2\",\"type\":\"Asset\",\"commodity\":\"$3\",\"parentId\":null,\"openedAt\":\"2026-01-01T00:00:00Z\"}" \
+              | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])"
+          }
+
+          POSITION_ACCT=$(open_account "1.2.ci-petr4" "PETR4 Holdings" "CI.PETR4")
+          CLEARING_PETR4=$(open_account "1.9.ci-petr4-clearing" "PETR4 Trading Clearing" "CI.PETR4")
+          CASH_ACCT=$(open_account "1.1.ci-positions-cash" "Brokerage Cash" "BRL")
+          CLEARING_BRL=$(open_account "1.9.ci-brl-clearing" "BRL Trading Clearing" "BRL")
+
+          post_trade() {
+            local valid="$1" qty="$2" cash="$3" posDir="$4" clrDir="$5" cashClrDir="$6" cashDir="$7"
+            curl -sf -X POST http://localhost:5299/ledger/entries -H "Content-Type: application/json" -d "{
+              \"tenantId\":\"$TENANT\",\"validTime\":\"$valid\",\"decisionTime\":\"$valid\",
+              \"currentTradingDayClose\":\"2026-02-01T00:00:00Z\",\"description\":\"CI trade\",\"sourceId\":\"manual\",
+              \"idempotencyKey\":\"ci-trade-$(python3 -c 'import uuid; print(uuid.uuid4())')\",
+              \"postings\":[
+                {\"accountId\":\"$POSITION_ACCT\",\"amountMinorUnits\":$qty,\"commodity\":\"CI.PETR4\",\"direction\":\"$posDir\"},
+                {\"accountId\":\"$CLEARING_PETR4\",\"amountMinorUnits\":$qty,\"commodity\":\"CI.PETR4\",\"direction\":\"$clrDir\"},
+                {\"accountId\":\"$CLEARING_BRL\",\"amountMinorUnits\":$cash,\"commodity\":\"BRL\",\"direction\":\"$cashClrDir\"},
+                {\"accountId\":\"$CASH_ACCT\",\"amountMinorUnits\":$cash,\"commodity\":\"BRL\",\"direction\":\"$cashDir\"}
+              ]}" > /dev/null
+          }
+
+          post_trade "2026-01-05T12:00:00Z" 100 300000 "Debit" "Credit" "Debit" "Credit"   # buy 100 @ R$30,00
+          post_trade "2026-01-06T12:00:00Z" 50 180000 "Debit" "Credit" "Debit" "Credit"    # buy 50 @ R$36,00
+          post_trade "2026-01-07T12:00:00Z" 60 210000 "Credit" "Debit" "Credit" "Debit"    # sell 60 @ R$35,00
+
+          SYNCED=$(curl -sf -X POST http://localhost:5299/positions/sync -H "Content-Type: application/json" -d "{
+            \"tenantId\":\"$TENANT\",\"positionAccountId\":\"$POSITION_ACCT\",\"cashAccountId\":\"$CASH_ACCT\",
+            \"commodity\":\"CI.PETR4\",\"costCommodity\":\"BRL\",
+            \"asOfValidTime\":\"2026-01-08T00:00:00Z\",\"asOfDecisionTime\":\"2026-01-08T00:00:00Z\"}")
+          echo "$SYNCED"
+          echo "$SYNCED" | python3 -c "
+          import json, sys
+          position = json.load(sys.stdin)
+          assert position['quantity'] == 90, position
+          assert position['costBasisMinorUnits'] == 288000, position
+          assert position['averageUnitCostMinorUnits'] == 3200, position
+          assert len(position['lots']) == 2, position
+          assert len(position['disposals']) == 1, position
+          "
+
+          # INV-040: Positions' synced quantity must exactly equal the ledger's own quantity.
+          LEDGER_BALANCE=$(curl -sf "http://localhost:5299/ledger/accounts/$POSITION_ACCT/balance?tenantId=$TENANT&commodity=CI.PETR4&asOfValidTime=2026-01-08T00:00:00Z&asOfDecisionTime=2026-01-08T00:00:00Z")
+          echo "$LEDGER_BALANCE" | python3 -c "
+          import json, sys
+          balance = json.load(sys.stdin)
+          assert balance['amountMinorUnits'] == 90, balance
+          "
+
       - name: Tear down
         if: always()
         run: |

@@ -28,6 +28,9 @@
     <ProjectReference Include="..\..\src\Modules\Ingestion\Domain\Atlas.Modules.Ingestion.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Ingestion\Application\Atlas.Modules.Ingestion.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Ingestion\Infrastructure\Atlas.Modules.Ingestion.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Positions\Domain\Atlas.Modules.Positions.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Positions\Application\Atlas.Modules.Positions.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Positions\Infrastructure\Atlas.Modules.Positions.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

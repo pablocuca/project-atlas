@@ -1,0 +1,32 @@
+# Implements gates 1–3 of the 12-gate pipeline in docs/03-architecture/09-devops-and-cicd.md §3
+# (build & analysers, architecture tests, unit + property tests) — the gates that have real content
+# to run against as of M0 Slice 1. Gates 4–8 and 10–12 (golden files, determinism, historical
+# corpus, contract tests, no-frills build, rule coverage, Bicep what-if, Flutter) arrive as the
+# slices that give them something to check land; gate 9 (security scans) is worth adding on its own
+# regardless of which slice, next.
+name: PR
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build & analysers, architecture tests, unit + property tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - run: dotnet restore atlas.sln
+
+      - run: dotnet build atlas.sln --no-restore --configuration Release
+
+      - run: dotnet format atlas.sln --verify-no-changes --no-restore
+
+      - run: dotnet test atlas.sln --no-build --configuration Release

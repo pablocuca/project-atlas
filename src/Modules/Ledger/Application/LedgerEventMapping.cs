@@ -17,6 +17,7 @@ internal static class LedgerEventMapping
         entry.Kind.ToString(),
         entry.CorrectsEntryId?.Value,
         entry.SourceId,
+        entry.Description,
         entry.Postings.Select(ToPublishedPosting).ToImmutableArray());
 
     private static PostedPosting ToPublishedPosting(Posting posting) =>

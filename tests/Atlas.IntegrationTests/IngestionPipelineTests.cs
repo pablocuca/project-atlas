@@ -1,10 +1,13 @@
+using System.Collections.Immutable;
 using Atlas.Kernel;
 using Atlas.Modules.Ingestion.Application;
 using Atlas.Modules.Ingestion.Domain;
 using Atlas.Modules.Ingestion.Infrastructure;
 using Atlas.Modules.Ledger.Application;
 using Atlas.Modules.Ledger.Domain;
+using Atlas.Modules.Ledger.Domain.Entries;
 using Atlas.Modules.Ledger.Infrastructure;
+using Npgsql;
 
 namespace Atlas.IntegrationTests;
 
@@ -84,14 +87,65 @@ public class IngestionPipelineTests(IngestionFixture fixture)
         Assert.Equal(584_950, checkingBalance.AmountMinorUnits);
     }
 
+    // US-011 (docs/01-product/10-user-stories.md): a manual entry and a bank-fed entry for the
+    // same real-world transfer, close in date, same amount, similar counterparty text — flagged as
+    // a probable duplicate, but NEITHER record is merged or suppressed. Both remain posted.
+    [Fact]
+    public async Task A_cross_source_near_duplicate_is_flagged_but_both_entries_still_post()
+    {
+        var tenantId = TenantId.New();
+        var (checking, unclassified) = await OpenAccountsAsync(tenantId);
+        var journalEntries = new JournalEntryRepository(fixture.LedgerDataSource);
+
+        // Manual entry (docs/03-architecture/adr/ADR-0010: manual entry is Source #1, posted the
+        // same way any other source is — directly through Ledger, never through Ingestion).
+        var manualPostings = ImmutableArray.Create(
+            Posting.Create(new AccountId(unclassified), Money.FromMinorUnits(120_000, Commodity.Brl), PostingDirection.Debit).Value,
+            Posting.Create(new AccountId(checking), Money.FromMinorUnits(120_000, Commodity.Brl), PostingDirection.Credit).Value);
+
+        var manualHandler = new PostJournalEntryHandler(journalEntries);
+        var manualResult = await manualHandler.HandleAsync(
+            tenantId, new ValidTime(Day1), new DecisionTime(Day1), Day1.AddDays(1),
+            "Joao", "manual", $"manual-{Guid.NewGuid()}", manualPostings, default);
+        Assert.True(manualResult.IsSuccess);
+        var manualEntryId = manualResult.Value.Entry.Id.Value;
+
+        // A bank-fed row for the same transfer, one day later, same amount, a similar (bank-style)
+        // description — a probable duplicate, not a proven one.
+        var mapping = new ColumnMapping(checking, unclassified, "BRL", 0, 1, 2, HasHeaderRow: true);
+        const string csv = "date,description,amount\n2026-01-06,JOAO S,-1200.00\n";
+        var handler = BuildHandler();
+
+        var importResult = await handler.HandleAsync(
+            tenantId, "test-bank", new RawPayload(csv), mapping, new DecisionTime(Day1.AddDays(1)), Day1.AddDays(2), default);
+
+        Assert.Equal(1, importResult.EntriesPosted); // never suppressed
+        Assert.Equal(0, importResult.DuplicatesSkipped); // not a BR-103 exact duplicate — a different idempotency key
+        Assert.Equal(1, importResult.DuplicateCandidatesFlagged);
+
+        await using var connection = await fixture.IngestionDataSource.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT existing_entry_id, similarity, status FROM ingestion.duplicate_candidate WHERE tenant_id = @tenantId", connection);
+        command.Parameters.AddWithValue("tenantId", tenantId.Value);
+        await using var reader = await command.ExecuteReaderAsync();
+
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(manualEntryId, reader.GetGuid(0));
+        Assert.True(reader.GetDouble(1) >= 0.85);
+        Assert.Equal("Pending", reader.GetString(2));
+        Assert.False(await reader.ReadAsync()); // exactly one candidate row
+    }
+
     private ImportCsvHandler BuildHandler()
     {
         var journalEntries = new JournalEntryRepository(fixture.LedgerDataSource);
         var postJournalEntry = new PostJournalEntryPort(new PostJournalEntryHandler(journalEntries));
+        var findEntriesInRange = new FindEntriesInRangePort(journalEntries);
         var archive = new BlobRawPayloadArchive(fixture.BlobContainerClient);
         var batches = new ImportBatchRepository(fixture.IngestionDataSource);
+        var duplicateCandidates = new DuplicateCandidateRepository(fixture.IngestionDataSource);
 
-        return new ImportCsvHandler(archive, batches, postJournalEntry);
+        return new ImportCsvHandler(archive, batches, duplicateCandidates, postJournalEntry, findEntriesInRange);
     }
 
     private async Task<(Guid Checking, Guid Unclassified)> OpenAccountsAsync(TenantId tenantId)

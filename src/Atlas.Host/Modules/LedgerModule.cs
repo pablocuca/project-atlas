@@ -45,9 +45,11 @@ public sealed class LedgerModule : IAtlasModule
         services.AddScoped<CorrectJournalEntryHandler>();
         services.AddScoped<BalanceAtHandler>();
 
-        // The in-process port other modules use to post into the ledger (MR-2: they depend on
-        // Ledger.Contracts only). First real consumer: Ingestion (M1 Slice 1).
+        // In-process ports other modules use, depending on Ledger.Contracts only (MR-2).
+        // IPostJournalEntry: Ingestion posting proposals (M1 Slice 1).
+        // IFindEntriesInRange: Ingestion's fuzzy cross-source duplicate detection (M1, FR-110).
         services.AddScoped<IPostJournalEntry, PostJournalEntryPort>();
+        services.AddScoped<IFindEntriesInRange, FindEntriesInRangePort>();
     }
 
     public void RegisterEventHandlers(IEventBusBuilder eventBus)

@@ -17,6 +17,7 @@ public sealed record JournalEntryPosted(
     string Kind, // "Original" | "Reversal" | "Replacement"
     Guid? CorrectsEntryId,
     string SourceId,
+    string Description,
     ImmutableArray<PostedPosting> Postings);
 
 public sealed record PostedPosting(Guid AccountId, Money Money, string Direction); // "Debit" | "Credit"

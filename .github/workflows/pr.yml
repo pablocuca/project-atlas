@@ -115,6 +115,49 @@ jobs:
           assert balance['amountMinorUnits'] == 784950, balance  # 8000.00 - 150.50
           "
 
+      # FR-110: a manual entry and a bank-fed entry for the same real-world transfer must both
+      # still post (never auto-merged) while getting flagged as a probable duplicate.
+      - name: Fuzzy cross-source duplicate detection (M1 ingestion)
+        run: |
+          set -euo pipefail
+          TENANT=$(python3 -c "import uuid; print(uuid.uuid4())")
+
+          CHECKING=$(curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"code\":\"1.1.ci-fuzzy\",\"name\":\"Checking\",\"type\":\"Asset\",\"commodity\":\"BRL\",\"parentId\":null,\"openedAt\":\"2026-01-01T00:00:00Z\"}")
+          UNCLASSIFIED=$(curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"code\":\"5.9.ci-fuzzy-unclassified\",\"name\":\"Unclassified\",\"type\":\"Expense\",\"commodity\":\"BRL\",\"parentId\":null,\"openedAt\":\"2026-01-01T00:00:00Z\"}")
+          CHECKING_ID=$(echo "$CHECKING" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+          UNCLASSIFIED_ID=$(echo "$UNCLASSIFIED" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+
+          curl -sf -X POST http://localhost:5299/ledger/entries -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"validTime\":\"2026-01-05T12:00:00Z\",\"decisionTime\":\"2026-01-05T12:00:00Z\",\"currentTradingDayClose\":\"2026-01-06T00:00:00Z\",\"description\":\"Joao\",\"sourceId\":\"manual\",\"idempotencyKey\":\"ci-manual-$TENANT\",\"postings\":[{\"accountId\":\"$UNCLASSIFIED_ID\",\"amountMinorUnits\":120000,\"commodity\":\"BRL\",\"direction\":\"Debit\"},{\"accountId\":\"$CHECKING_ID\",\"amountMinorUnits\":120000,\"commodity\":\"BRL\",\"direction\":\"Credit\"}]}" > /dev/null
+
+          python3 - "$TENANT" "$CHECKING_ID" "$UNCLASSIFIED_ID" <<'PYEOF' > fuzzy_import.json
+          import json, sys
+          tenant, checking, unclassified = sys.argv[1:4]
+          print(json.dumps({
+              "tenantId": tenant,
+              "sourceId": "ci-bank",
+              "csvContent": "date,description,amount\n2026-01-06,JOAO S,-1200.00\n",
+              "columnMapping": {
+                  "primaryAccountId": checking, "unclassifiedAccountId": unclassified, "commodity": "BRL",
+                  "dateColumnIndex": 0, "descriptionColumnIndex": 1, "amountColumnIndex": 2, "hasHeaderRow": True,
+              },
+              "decisionTime": "2026-01-06T12:00:00Z",
+              "currentTradingDayClose": "2026-01-07T00:00:00Z",
+          }))
+          PYEOF
+
+          RESULT=$(curl -sf -X POST http://localhost:5299/ingestion/csv-imports -H "Content-Type: application/json" -d @fuzzy_import.json)
+          echo "$RESULT"
+          echo "$RESULT" | python3 -c "
+          import json, sys
+          result = json.load(sys.stdin)
+          assert result['entriesPosted'] == 1, result       # never suppressed
+          assert result['duplicatesSkipped'] == 0, result   # not a BR-103 exact duplicate
+          assert result['duplicateCandidatesFlagged'] == 1, result
+          "
+
       - name: Tear down
         if: always()
         run: |

@@ -16,7 +16,7 @@ internal sealed record ParseFailureResponse(int RowNumber, string RawLine, strin
 
 internal sealed record ImportResultResponse(
     Guid BatchId, string BlobPath, int RowsParsed, IReadOnlyList<ParseFailureResponse> ParseFailures,
-    int EntriesPosted, int DuplicatesSkipped, int ProposalRejected);
+    int EntriesPosted, int DuplicatesSkipped, int ProposalRejected, int DuplicateCandidatesFlagged);
 
 // docs/03-architecture/03-modular-monolith.md: minimal APIs, module-prefixed. No file upload
 // (docs/decisions on this slice): the content comes as a plain JSON string field, matching every
@@ -44,6 +44,6 @@ internal static class IngestionEndpoints
         return Results.Ok(new ImportResultResponse(
             result.BatchId, result.BlobPath, result.RowsParsed,
             [.. result.ParseFailures.Select(f => new ParseFailureResponse(f.RowNumber, f.RawLine, f.Reason))],
-            result.EntriesPosted, result.DuplicatesSkipped, result.ProposalRejected));
+            result.EntriesPosted, result.DuplicatesSkipped, result.ProposalRejected, result.DuplicateCandidatesFlagged));
     }
 }

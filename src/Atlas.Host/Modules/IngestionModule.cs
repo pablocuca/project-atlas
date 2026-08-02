@@ -39,6 +39,10 @@ public sealed class IngestionModule : IAtlasModule
         var dataSource = _dataSource;
         services.AddScoped<IRawPayloadArchive>(_ => new BlobRawPayloadArchive(blobContainerClient));
         services.AddScoped<IImportBatchRepository>(_ => new ImportBatchRepository(dataSource));
+        services.AddScoped<IDuplicateCandidateRepository>(_ => new DuplicateCandidateRepository(dataSource));
+        // ImportCsvHandler also depends on Ledger.Contracts.IPostJournalEntry and IFindEntriesInRange
+        // (MR-2) — registered by LedgerModule, resolved here automatically since both modules share
+        // one DI container.
         services.AddScoped<ImportCsvHandler>();
     }
 

@@ -132,6 +132,68 @@ public sealed class JournalEntryRepository(NpgsqlDataSource dataSource) : IJourn
         return Money.FromMinorUnits(sum, commodity);
     }
 
+    public async Task<IReadOnlyList<JournalEntry>> FindOriginalsInRangeAsync(
+        TenantId tenantId, ValidTime from, ValidTime to, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT e.entry_id, e.valid_time, e.decision_time, e.corrects_entry, e.idempotency_key, e.source_id, e.description,
+                   p.account_id, p.commodity, p.minor_units
+            FROM ledger.journal_entry e JOIN ledger.posting p USING (entry_id)
+            WHERE e.tenant_id = @tenantId AND e.kind = 'Original' AND e.valid_time BETWEEN @from AND @to
+            ORDER BY e.entry_id, p.posting_id
+            """);
+        command.Parameters.AddWithValue("tenantId", tenantId.Value);
+        command.Parameters.AddWithValue("from", from.Value);
+        command.Parameters.AddWithValue("to", to.Value);
+
+        var entries = new List<JournalEntry>();
+        Guid? currentEntryId = null;
+        ValidTime currentValidTime = default;
+        DecisionTime currentDecisionTime = default;
+        string currentIdempotencyKey = "";
+        string currentSourceId = "";
+        string currentDescription = "";
+        var currentPostings = ImmutableArray.CreateBuilder<Posting>();
+
+        void FlushCurrent()
+        {
+            if (currentEntryId is not { } id)
+                return;
+
+            entries.Add(JournalEntry.Reconstitute(
+                new EntryId(id), tenantId, currentValidTime, currentDecisionTime, currentDescription,
+                currentSourceId, currentIdempotencyKey, currentPostings.ToImmutable(), correctsEntryId: null, JournalEntryKind.Original));
+        }
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var entryId = reader.GetGuid(0);
+            if (currentEntryId != entryId)
+            {
+                FlushCurrent();
+                currentEntryId = entryId;
+                currentValidTime = new ValidTime(reader.GetFieldValue<DateTimeOffset>(1));
+                currentDecisionTime = new DecisionTime(reader.GetFieldValue<DateTimeOffset>(2));
+                currentIdempotencyKey = reader.GetString(4);
+                currentSourceId = reader.GetString(5);
+                currentDescription = reader.GetString(6);
+                currentPostings = ImmutableArray.CreateBuilder<Posting>();
+            }
+
+            var accountId = new AccountId(reader.GetGuid(7));
+            var commodity = Commodity.BySymbol(reader.GetString(8));
+            var minorUnits = reader.GetInt64(9);
+            var direction = minorUnits >= 0 ? PostingDirection.Debit : PostingDirection.Credit;
+            var money = Money.FromMinorUnits(Math.Abs(minorUnits), commodity);
+            currentPostings.Add(Posting.Create(accountId, money, direction).Value);
+        }
+
+        FlushCurrent();
+        return entries;
+    }
+
     private async Task<ImmutableArray<Posting>> FindPostingsAsync(EntryId entryId, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(

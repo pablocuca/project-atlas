@@ -21,4 +21,10 @@ public interface IJournalEntryRepository
         ValidTime asOfValidTime,
         DecisionTime asOfDecisionTime,
         CancellationToken cancellationToken);
+
+    // Backs the IFindEntriesInRange port Ingestion uses for fuzzy cross-source duplicate detection
+    // (FR-110) — the "recent entries" a new proposal gets compared against. Kind = Original only;
+    // Reversal/Replacement rows are correction artifacts, not economic events to match against.
+    Task<IReadOnlyList<JournalEntry>> FindOriginalsInRangeAsync(
+        TenantId tenantId, ValidTime from, ValidTime to, CancellationToken cancellationToken);
 }

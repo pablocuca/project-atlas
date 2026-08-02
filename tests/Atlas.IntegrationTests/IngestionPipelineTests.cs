@@ -136,6 +136,60 @@ public class IngestionPipelineTests(IngestionFixture fixture)
         Assert.False(await reader.ReadAsync()); // exactly one candidate row
     }
 
+    // US-012 (docs/01-product/10-user-stories.md): an exact-match reported balance reconciles.
+    [Fact]
+    public async Task Reconciliation_within_tolerance_is_marked_reconciled()
+    {
+        var tenantId = TenantId.New();
+        var (checking, unclassified) = await OpenAccountsAsync(tenantId);
+        await PostManualEntryAsync(tenantId, checking, unclassified, 8_000_00, Day1);
+
+        var reconcile = BuildReconcileHandler();
+        var reported = Money.FromMinorUnits(8_000_00, Commodity.Brl);
+        var outcome = await reconcile.HandleAsync(
+            tenantId, "test-bank", checking, reported, new ValidTime(Day1.AddDays(1)), new DecisionTime(Day1.AddDays(1)), default);
+
+        Assert.True(outcome.IsReconciled);
+        Assert.Equal(0, outcome.DiscrepancyMinorUnits);
+    }
+
+    // US-012's drift scenario: a discrepancy well outside tolerance is recorded as a breach —
+    // BR-108 forbids a silent adjusting entry, so the account balance itself must be provably
+    // unchanged by the act of reconciling.
+    [Fact]
+    public async Task A_discrepancy_over_tolerance_is_recorded_without_touching_the_ledger()
+    {
+        var tenantId = TenantId.New();
+        var (checking, unclassified) = await OpenAccountsAsync(tenantId);
+        await PostManualEntryAsync(tenantId, checking, unclassified, 1_429_000, Day1); // R$14.290,00
+
+        var journalEntries = new JournalEntryRepository(fixture.LedgerDataSource);
+        var balanceBefore = await journalEntries.BalanceAtAsync(
+            tenantId, new AccountId(checking), Commodity.Brl, new ValidTime(Day1.AddDays(1)), new DecisionTime(Day1.AddDays(1)), default);
+
+        var reconcile = BuildReconcileHandler();
+        var reported = Money.FromMinorUnits(1_432_891, Commodity.Brl); // R$14.328,91 — R$38,91 off
+        var outcome = await reconcile.HandleAsync(
+            tenantId, "test-bank", checking, reported, new ValidTime(Day1.AddDays(1)), new DecisionTime(Day1.AddDays(1)), default);
+
+        Assert.False(outcome.IsReconciled);
+        Assert.Equal(3_891, outcome.DiscrepancyMinorUnits);
+
+        var balanceAfter = await journalEntries.BalanceAtAsync(
+            tenantId, new AccountId(checking), Commodity.Brl, new ValidTime(Day1.AddDays(1)), new DecisionTime(Day1.AddDays(1)), default);
+        Assert.Equal(balanceBefore.AmountMinorUnits, balanceAfter.AmountMinorUnits); // no silent adjustment, BR-108
+
+        await using var connection = await fixture.IngestionDataSource.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT is_reconciled, discrepancy_minor_units FROM ingestion.reconciliation WHERE tenant_id = @tenantId", connection);
+        command.Parameters.AddWithValue("tenantId", tenantId.Value);
+        await using var reader = await command.ExecuteReaderAsync();
+
+        Assert.True(await reader.ReadAsync());
+        Assert.False(reader.GetBoolean(0));
+        Assert.Equal(3_891L, reader.GetInt64(1));
+    }
+
     private ImportCsvHandler BuildHandler()
     {
         var journalEntries = new JournalEntryRepository(fixture.LedgerDataSource);
@@ -146,6 +200,29 @@ public class IngestionPipelineTests(IngestionFixture fixture)
         var duplicateCandidates = new DuplicateCandidateRepository(fixture.IngestionDataSource);
 
         return new ImportCsvHandler(archive, batches, duplicateCandidates, postJournalEntry, findEntriesInRange);
+    }
+
+    private ReconcileSourceHandler BuildReconcileHandler()
+    {
+        var journalEntries = new JournalEntryRepository(fixture.LedgerDataSource);
+        var queryBalance = new QueryLedgerBalancePort(new BalanceAtHandler(journalEntries));
+        var reconciliations = new ReconciliationRepository(fixture.IngestionDataSource);
+
+        return new ReconcileSourceHandler(queryBalance, reconciliations);
+    }
+
+    private async Task PostManualEntryAsync(TenantId tenantId, Guid checking, Guid unclassified, long amountMinorUnits, DateTimeOffset validTime)
+    {
+        var journalEntries = new JournalEntryRepository(fixture.LedgerDataSource);
+        var postings = ImmutableArray.Create(
+            Posting.Create(new AccountId(checking), Money.FromMinorUnits(amountMinorUnits, Commodity.Brl), PostingDirection.Debit).Value,
+            Posting.Create(new AccountId(unclassified), Money.FromMinorUnits(amountMinorUnits, Commodity.Brl), PostingDirection.Credit).Value);
+
+        var handler = new PostJournalEntryHandler(journalEntries);
+        var result = await handler.HandleAsync(
+            tenantId, new ValidTime(validTime), new DecisionTime(validTime), validTime.AddDays(1),
+            "opening balance", "manual", $"manual-{Guid.NewGuid()}", postings, default);
+        Assert.True(result.IsSuccess);
     }
 
     private async Task<(Guid Checking, Guid Unclassified)> OpenAccountsAsync(TenantId tenantId)

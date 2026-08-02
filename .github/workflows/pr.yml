@@ -158,6 +158,51 @@ jobs:
           assert result['duplicateCandidatesFlagged'] == 1, result
           "
 
+      # FR-111, BR-108, US-012: an exact-match reported balance reconciles; a discrepancy beyond
+      # the one-major-unit tolerance (Decision 0008) breaches without ever adjusting the ledger.
+      - name: Reconciliation (M1 ingestion)
+        run: |
+          set -euo pipefail
+          TENANT=$(python3 -c "import uuid; print(uuid.uuid4())")
+
+          CHECKING=$(curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"code\":\"1.1.ci-recon\",\"name\":\"Checking\",\"type\":\"Asset\",\"commodity\":\"BRL\",\"parentId\":null,\"openedAt\":\"2026-01-01T00:00:00Z\"}")
+          UNCLASSIFIED=$(curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"code\":\"5.9.ci-recon-unclassified\",\"name\":\"Unclassified\",\"type\":\"Expense\",\"commodity\":\"BRL\",\"parentId\":null,\"openedAt\":\"2026-01-01T00:00:00Z\"}")
+          CHECKING_ID=$(echo "$CHECKING" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+          UNCLASSIFIED_ID=$(echo "$UNCLASSIFIED" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+
+          curl -sf -X POST http://localhost:5299/ledger/entries -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"validTime\":\"2026-01-05T12:00:00Z\",\"decisionTime\":\"2026-01-05T12:00:00Z\",\"currentTradingDayClose\":\"2026-01-06T00:00:00Z\",\"description\":\"opening balance\",\"sourceId\":\"manual\",\"idempotencyKey\":\"ci-recon-manual-$TENANT\",\"postings\":[{\"accountId\":\"$CHECKING_ID\",\"amountMinorUnits\":800000,\"commodity\":\"BRL\",\"direction\":\"Debit\"},{\"accountId\":\"$UNCLASSIFIED_ID\",\"amountMinorUnits\":800000,\"commodity\":\"BRL\",\"direction\":\"Credit\"}]}" > /dev/null
+
+          EXACT=$(curl -sf -X POST http://localhost:5299/ingestion/reconciliations -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"sourceId\":\"ci-bank\",\"accountId\":\"$CHECKING_ID\",\"commodity\":\"BRL\",\"reportedAmountMinorUnits\":800000,\"asOfValidTime\":\"2026-01-06T00:00:00Z\",\"asOfDecisionTime\":\"2026-01-06T00:00:00Z\"}")
+          echo "$EXACT"
+          echo "$EXACT" | python3 -c "
+          import json, sys
+          result = json.load(sys.stdin)
+          assert result['isReconciled'] is True, result
+          assert result['discrepancyMinorUnits'] == 0, result
+          "
+
+          DRIFT=$(curl -sf -X POST http://localhost:5299/ingestion/reconciliations -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"sourceId\":\"ci-bank\",\"accountId\":\"$CHECKING_ID\",\"commodity\":\"BRL\",\"reportedAmountMinorUnits\":803891,\"asOfValidTime\":\"2026-01-06T00:00:00Z\",\"asOfDecisionTime\":\"2026-01-06T00:00:00Z\"}")
+          echo "$DRIFT"
+          echo "$DRIFT" | python3 -c "
+          import json, sys
+          result = json.load(sys.stdin)
+          assert result['isReconciled'] is False, result
+          assert result['discrepancyMinorUnits'] == 3891, result
+          "
+
+          # BR-108: never a silent adjustment — the ledger balance must be untouched by reconciling.
+          BALANCE=$(curl -sf "http://localhost:5299/ledger/accounts/$CHECKING_ID/balance?tenantId=$TENANT&commodity=BRL&asOfValidTime=2026-01-06T00:00:00Z&asOfDecisionTime=2026-01-06T00:00:00Z")
+          echo "$BALANCE" | python3 -c "
+          import json, sys
+          balance = json.load(sys.stdin)
+          assert balance['amountMinorUnits'] == 800000, balance
+          "
+
       - name: Tear down
         if: always()
         run: |

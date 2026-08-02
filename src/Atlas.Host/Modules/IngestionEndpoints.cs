@@ -18,6 +18,13 @@ internal sealed record ImportResultResponse(
     Guid BatchId, string BlobPath, int RowsParsed, IReadOnlyList<ParseFailureResponse> ParseFailures,
     int EntriesPosted, int DuplicatesSkipped, int ProposalRejected, int DuplicateCandidatesFlagged);
 
+internal sealed record ReconcileSourceRequest(
+    Guid TenantId, string SourceId, Guid AccountId, string Commodity, long ReportedAmountMinorUnits,
+    DateTimeOffset AsOfValidTime, DateTimeOffset AsOfDecisionTime);
+
+internal sealed record ReconciliationResponse(
+    long ReportedMinorUnits, long LedgerMinorUnits, long DiscrepancyMinorUnits, bool IsReconciled);
+
 // docs/03-architecture/03-modular-monolith.md: minimal APIs, module-prefixed. No file upload
 // (docs/decisions on this slice): the content comes as a plain JSON string field, matching every
 // other endpoint in this codebase — there's no UI yet to drive a multipart upload.
@@ -27,6 +34,7 @@ internal static class IngestionEndpoints
     {
         var group = endpoints.MapGroup("/ingestion");
         group.MapPost("/csv-imports", ImportCsv);
+        group.MapPost("/reconciliations", ReconcileSource);
     }
 
     private static async Task<IResult> ImportCsv(
@@ -45,5 +53,21 @@ internal static class IngestionEndpoints
             result.BatchId, result.BlobPath, result.RowsParsed,
             [.. result.ParseFailures.Select(f => new ParseFailureResponse(f.RowNumber, f.RawLine, f.Reason))],
             result.EntriesPosted, result.DuplicatesSkipped, result.ProposalRejected, result.DuplicateCandidatesFlagged));
+    }
+
+    // FR-111, BR-108: computes and records the discrepancy; never creates or adjusts a ledger
+    // entry, whatever the outcome.
+    private static async Task<IResult> ReconcileSource(
+        ReconcileSourceRequest request, ReconcileSourceHandler handler, CancellationToken cancellationToken)
+    {
+        var reportedBalance = Money.FromMinorUnits(request.ReportedAmountMinorUnits, Commodity.BySymbol(request.Commodity));
+
+        var outcome = await handler.HandleAsync(
+            new TenantId(request.TenantId), request.SourceId, request.AccountId, reportedBalance,
+            new ValidTime(request.AsOfValidTime), new DecisionTime(request.AsOfDecisionTime), cancellationToken);
+
+        return Results.Ok(new ReconciliationResponse(
+            outcome.ReportedBalance.AmountMinorUnits, outcome.LedgerBalance.AmountMinorUnits,
+            outcome.DiscrepancyMinorUnits, outcome.IsReconciled));
     }
 }

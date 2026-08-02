@@ -12,6 +12,10 @@ internal sealed record ImportCsvRequest(
     Guid TenantId, string SourceId, string CsvContent, ColumnMappingRequest ColumnMapping,
     DateTimeOffset DecisionTime, DateTimeOffset CurrentTradingDayClose);
 
+internal sealed record ImportOfxRequest(
+    Guid TenantId, string SourceId, string OfxContent, Guid PrimaryAccountId, Guid UnclassifiedAccountId, string Commodity,
+    DateTimeOffset DecisionTime, DateTimeOffset CurrentTradingDayClose);
+
 internal sealed record ParseFailureResponse(int RowNumber, string RawLine, string Reason);
 
 internal sealed record ImportResultResponse(
@@ -34,6 +38,7 @@ internal static class IngestionEndpoints
     {
         var group = endpoints.MapGroup("/ingestion");
         group.MapPost("/csv-imports", ImportCsv);
+        group.MapPost("/ofx-imports", ImportOfx);
         group.MapPost("/reconciliations", ReconcileSource);
     }
 
@@ -47,6 +52,22 @@ internal static class IngestionEndpoints
 
         var result = await handler.HandleAsync(
             new TenantId(request.TenantId), request.SourceId, new RawPayload(request.CsvContent), mapping,
+            new DecisionTime(request.DecisionTime), request.CurrentTradingDayClose, cancellationToken);
+
+        return Results.Ok(new ImportResultResponse(
+            result.BatchId, result.BlobPath, result.RowsParsed,
+            [.. result.ParseFailures.Select(f => new ParseFailureResponse(f.RowNumber, f.RawLine, f.Reason))],
+            result.EntriesPosted, result.DuplicatesSkipped, result.ProposalRejected, result.DuplicateCandidatesFlagged));
+    }
+
+    // FR-108. Same JSON-string-content decision as ImportCsv, and the same result shape — a client
+    // doesn't need to know which statement format it imported to interpret the response.
+    private static async Task<IResult> ImportOfx(
+        ImportOfxRequest request, ImportOfxHandler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(
+            new TenantId(request.TenantId), request.SourceId, new RawPayload(request.OfxContent),
+            request.PrimaryAccountId, request.UnclassifiedAccountId, request.Commodity,
             new DecisionTime(request.DecisionTime), request.CurrentTradingDayClose, cancellationToken);
 
         return Results.Ok(new ImportResultResponse(

@@ -7,5 +7,5 @@ namespace Atlas.Modules.Ingestion.Application;
 // to Blob, not Postgres). Returns a reference to where the payload was archived.
 public interface IRawPayloadArchive
 {
-    Task<string> ArchiveAsync(Guid tenantId, string sourceId, RawPayload payload, CancellationToken cancellationToken);
+    Task<string> ArchiveAsync(Guid tenantId, string sourceId, string extension, RawPayload payload, CancellationToken cancellationToken);
 }

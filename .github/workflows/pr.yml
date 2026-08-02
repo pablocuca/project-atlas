@@ -115,6 +115,64 @@ jobs:
           assert balance['amountMinorUnits'] == 784950, balance  # 8000.00 - 150.50
           "
 
+      # FR-108: OFX 1.x tag-soup (no closing tags on leaves) parses the same way CSV does, and
+      # FITID-based idempotency (Decision 0012) means reimporting the same statement dedups cleanly.
+      - name: Import an OFX statement and verify the result (M1 ingestion)
+        run: |
+          set -euo pipefail
+          TENANT=$(python3 -c "import uuid; print(uuid.uuid4())")
+
+          CHECKING=$(curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"code\":\"1.1.ci-ofx\",\"name\":\"Checking\",\"type\":\"Asset\",\"commodity\":\"BRL\",\"parentId\":null,\"openedAt\":\"2026-01-01T00:00:00Z\"}")
+          UNCLASSIFIED=$(curl -sf -X POST http://localhost:5299/ledger/accounts -H "Content-Type: application/json" \
+            -d "{\"tenantId\":\"$TENANT\",\"code\":\"5.9.ci-ofx-unclassified\",\"name\":\"Unclassified\",\"type\":\"Expense\",\"commodity\":\"BRL\",\"parentId\":null,\"openedAt\":\"2026-01-01T00:00:00Z\"}")
+          CHECKING_ID=$(echo "$CHECKING" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+          UNCLASSIFIED_ID=$(echo "$UNCLASSIFIED" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+
+          python3 - "$TENANT" "$CHECKING_ID" "$UNCLASSIFIED_ID" <<'PYEOF' > ofx_request.json
+          import json, sys
+          tenant, checking, unclassified = sys.argv[1:4]
+          ofx = (
+              "<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>\n"
+              "<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20260105120000<TRNAMT>8000.00<FITID>ci-ofx-1<NAME>Salary\n"
+              "</STMTTRN>\n"
+              "<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260106<TRNAMT>-150.50<FITID>ci-ofx-2<NAME>Groceries\n"
+              "</STMTTRN>\n"
+              "</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>\n"
+          )
+          print(json.dumps({
+              "tenantId": tenant, "sourceId": "ci-bank-ofx", "ofxContent": ofx,
+              "primaryAccountId": checking, "unclassifiedAccountId": unclassified, "commodity": "BRL",
+              "decisionTime": "2026-01-06T12:00:00Z", "currentTradingDayClose": "2026-01-07T00:00:00Z",
+          }))
+          PYEOF
+
+          RESULT=$(curl -sf -X POST http://localhost:5299/ingestion/ofx-imports -H "Content-Type: application/json" -d @ofx_request.json)
+          echo "$RESULT"
+          echo "$RESULT" | python3 -c "
+          import json, sys
+          result = json.load(sys.stdin)
+          assert result['rowsParsed'] == 2, result
+          assert result['entriesPosted'] == 2, result
+          assert len(result['parseFailures']) == 0, result
+          "
+
+          # Reimporting the same statement (same FITIDs) must dedup to zero new entries.
+          REIMPORT=$(curl -sf -X POST http://localhost:5299/ingestion/ofx-imports -H "Content-Type: application/json" -d @ofx_request.json)
+          echo "$REIMPORT" | python3 -c "
+          import json, sys
+          result = json.load(sys.stdin)
+          assert result['entriesPosted'] == 0, result
+          assert result['duplicatesSkipped'] == 2, result
+          "
+
+          BALANCE=$(curl -sf "http://localhost:5299/ledger/accounts/$CHECKING_ID/balance?tenantId=$TENANT&commodity=BRL&asOfValidTime=2026-02-01T00:00:00Z&asOfDecisionTime=2026-02-01T00:00:00Z")
+          echo "$BALANCE" | python3 -c "
+          import json, sys
+          balance = json.load(sys.stdin)
+          assert balance['amountMinorUnits'] == 784950, balance  # unchanged by the reimport
+          "
+
       # FR-110: a manual entry and a bank-fed entry for the same real-world transfer must both
       # still post (never auto-merged) while getting flagged as a probable duplicate.
       - name: Fuzzy cross-source duplicate detection (M1 ingestion)

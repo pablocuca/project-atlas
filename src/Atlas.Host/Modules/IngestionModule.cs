@@ -41,10 +41,12 @@ public sealed class IngestionModule : IAtlasModule
         services.AddScoped<IImportBatchRepository>(_ => new ImportBatchRepository(dataSource));
         services.AddScoped<IDuplicateCandidateRepository>(_ => new DuplicateCandidateRepository(dataSource));
         services.AddScoped<IReconciliationRepository>(_ => new ReconciliationRepository(dataSource));
-        // ImportCsvHandler and ReconcileSourceHandler also depend on Ledger.Contracts ports
-        // (IPostJournalEntry, IFindEntriesInRange, IQueryLedgerBalance — MR-2), registered by
-        // LedgerModule and resolved here automatically since both modules share one DI container.
+        // ImportCsvHandler, ImportOfxHandler, and ReconcileSourceHandler also depend on
+        // Ledger.Contracts ports (IPostJournalEntry, IFindEntriesInRange, IQueryLedgerBalance —
+        // MR-2), registered by LedgerModule and resolved here automatically since both modules
+        // share one DI container.
         services.AddScoped<ImportCsvHandler>();
+        services.AddScoped<ImportOfxHandler>();
         services.AddScoped<ReconcileSourceHandler>();
     }
 

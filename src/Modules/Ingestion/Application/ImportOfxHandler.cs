@@ -5,45 +5,43 @@ using Atlas.Modules.Ledger.Contracts;
 
 namespace Atlas.Modules.Ingestion.Application;
 
-public sealed record ImportResult(
-    Guid BatchId,
-    string BlobPath,
-    int RowsParsed,
-    ImmutableArray<ParseFailure> ParseFailures,
-    int EntriesPosted,
-    int DuplicatesSkipped,
-    int ProposalRejected,
-    int DuplicateCandidatesFlagged);
-
-// Orchestrates the pipeline (docs/03-architecture/05-ingestion-and-integration.md §3) from CAPTURE
-// through POST and the fuzzy-DEDUPLICATE check that runs alongside it: archive the raw payload
-// first (stage 1, "the most important stage" — it happens even if every row fails to parse), then
-// PARSE, then PROPOSE + POST per row, then check each posted entry against recent Ledger entries
-// for a probable cross-source duplicate (FR-110). Decision 0006: no CONFIRM-stage confidence gate
-// this slice — every successfully proposed row posts directly.
-public sealed class ImportCsvHandler(
+// FR-108. Mirrors ImportCsvHandler's pipeline exactly (archive -> parse -> propose+post -> fuzzy
+// dedup -> record batch) — see that class's comments for the stage-by-stage reasoning, which applies
+// unchanged here. The only difference is the PARSE stage (OfxParser instead of CsvParser) and that
+// OFX has no per-file column mapping to supply, just the three fields any statement import needs
+// (Decision 0012): which account this statement is for, its unclassified counter-account, and its
+// commodity.
+public sealed class ImportOfxHandler(
     IRawPayloadArchive archive,
     IImportBatchRepository batches,
     IDuplicateCandidateRepository duplicateCandidates,
     IPostJournalEntry postJournalEntry,
     IFindEntriesInRange findEntriesInRange)
 {
-    // docs/03-architecture/05-ingestion-and-integration.md §4: "date +/- 2 days."
     private const int DuplicateWindowDays = 2;
 
     public async Task<ImportResult> HandleAsync(
         TenantId tenantId,
         string sourceId,
         RawPayload payload,
-        ColumnMapping mapping,
+        Guid primaryAccountId,
+        Guid unclassifiedAccountId,
+        string commodity,
         DecisionTime decisionTime,
         DateTimeOffset currentTradingDayClose,
         CancellationToken cancellationToken)
     {
         var batchId = Guid.NewGuid();
-        var blobPath = await archive.ArchiveAsync(tenantId.Value, sourceId, "csv", payload, cancellationToken);
+        var blobPath = await archive.ArchiveAsync(tenantId.Value, sourceId, "ofx", payload, cancellationToken);
 
-        var (parsedRows, parseFailures) = CsvParser.Parse(payload, mapping);
+        var (parsedRows, parseFailures) = OfxParser.Parse(payload);
+
+        // EntryProposalBuilder.FromParsedRow reads only Commodity/PrimaryAccountId/
+        // UnclassifiedAccountId off a ColumnMapping — never the four column-index/header fields,
+        // which OFX has no equivalent of. Verified at that call site; not duplicating its ~10 lines
+        // of proposal-building logic here for a second statement format is worth four inert values.
+        var mapping = new ColumnMapping(
+            primaryAccountId, unclassifiedAccountId, commodity, DateColumnIndex: 0, DescriptionColumnIndex: 0, AmountColumnIndex: 0, HasHeaderRow: false);
 
         var posted = 0;
         var duplicates = 0;
@@ -68,8 +66,6 @@ public sealed class ImportCsvHandler(
             {
                 if (result.Error.Code == "LEDGER.DUPLICATE_IDEMPOTENCY_KEY")
                 {
-                    // BR-103, exercised here exactly as atlas-seed already proved it for Ledger
-                    // directly — re-importing an overlapping window creates zero duplicates.
                     duplicates++;
                     continue;
                 }
@@ -94,8 +90,6 @@ public sealed class ImportCsvHandler(
                 duplicateCandidatesFlagged++;
             }
 
-            // Later rows in the same batch can also be a fuzzy duplicate of an earlier one — not
-            // just of what was already in Ledger before this import started.
             recentEntries.Add(new ExistingEntrySummary(postedEntry.EntryId, postedEntry.ValidTime.Value, postedEntry.Description, amount));
         }
 
@@ -109,8 +103,6 @@ public sealed class ImportCsvHandler(
             batchId, blobPath, parsedRows.Length, parseFailures, posted, duplicates, proposalRejected, duplicateCandidatesFlagged);
     }
 
-    // One query covering the whole file's date range (+/- the fuzzy window), not one per row —
-    // every row's fuzzy check runs against the same in-memory list.
     private async Task<List<ExistingEntrySummary>> LoadRecentEntriesAsync(
         TenantId tenantId, ImmutableArray<ParsedRow> parsedRows, CancellationToken cancellationToken)
     {
